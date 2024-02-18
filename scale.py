@@ -5,7 +5,7 @@ from time import sleep
 from datetime import datetime
 import threading
 from queue import Queue
-from lib import RotaryEncoder, fillUpLine, generateRatioStrenthLine
+from lib import RotaryEncoder, fillUpLine, generateRatioStrenthLine, HX711, getTargetWeightFromGroundsWeight, generateFillLine
 import RPi.GPIO as GPIO
 from time import sleep
 from enum import Enum
@@ -23,7 +23,16 @@ EVENT = threading.Event()
 
 display = drivers.Lcd()
 display.lcd_display_extended_string('Verh. | St{0xE1}rke', 1)
+referenceUnit1 = -980
+hx1 = HX711(26, 16)
+hx1.set_reading_format("MSB", "MSB")
+hx1.set_reference_unit(referenceUnit1)
+hx1.reset()
 
+
+waterWeight = 0
+beansWeight = 0
+targetWaterWeight = 0
 ratio = 16
 ratioEditable = True
 display.lcd_display_extended_string(generateRatioStrenthLine(ratio), 2)
@@ -72,32 +81,61 @@ def on_press(param):
         display.lcd_display_extended_string("leere Bohnendose",1)
         display.lcd_display_extended_string("auf Wage stellen",2)
     elif(currentScreen == CurrentScreen.PLACE_BEAN_HOLDER):
+        hx1.tare()
         currentScreen = CurrentScreen.PLACE_FILLED_BEAN_HOLDER
         display.lcd_display_extended_string("F{0xF5}llen & wiegen ",1)
         display.lcd_display_extended_string("60g             ",2)
-    elif(currentScreen == CurrentScreen.PLACE_FILLED_BEAN_HOLDER):
+    elif(currentScreen == CurrentScreen.PLACE_FILLED_BEAN_HOLDER and beansWeight > 1):
         currentScreen = CurrentScreen.PLACE_COFFEE_CAN
         display.lcd_display_extended_string("leere Karaffe   ",1)
         display.lcd_display_extended_string("auf Wage stellen",2)
+        sleep(2)
+        display.lcd_display_extended_string("leere Karaffe   ",1)
+        display.lcd_display_extended_string("auf Wage stellen",2)
     elif(currentScreen == CurrentScreen.PLACE_COFFEE_CAN):
+        hx1.tare()
         currentScreen = CurrentScreen.FILL_COFFEE_CAN
-        display.lcd_display_extended_string("1000/1200ml     ",1)
-        display.lcd_display_extended_string("{0xFF}{0xFF}{0xFF}{0xFF}{0xFF}{0xD0}{0xD0}{0xD0}{0xD0}{0xD0}xxxxxx",2)
     elif(currentScreen == CurrentScreen.PLACE_FILLED_BEAN_HOLDER):
         currentScreen = CurrentScreen.PLACE_FILLED_BEAN_HOLDER
         display.lcd_display_extended_string("fullen & wiegen ",1)
-        display.lcd_display_extended_string("60g             ",2)
+        sleep(2)
+        display.lcd_display_extended_string("fullen & wiegen ",1)
+
     elif(currentScreen == CurrentScreen.FILL_COFFEE_CAN):
         currentScreen = CurrentScreen.STRENGTH;
         ratioEditable = True
         display.lcd_display_extended_string('Verh. | St{0xE1}rke', 1)
         display.lcd_display_extended_string(generateRatioStrenthLine(ratio), 2)
 
+def doLoadCellCheck():
+    global currentScreen
+    global beansWeight
+    global waterWeight
+    global targetWaterWeight
+    while(True):
+        # Check if the current screen requeires weight
+        sleep(.25)
+        if (currentScreen == CurrentScreen.PLACE_FILLED_BEAN_HOLDER):
+            currentWeight = hx1.get_weight(3)
+            beansWeight = currentWeight
+            targetWaterWeight = getTargetWeightFromGroundsWeight(beansWeight, 1, ratio)
+            display.lcd_display_extended_string(str(round(beansWeight, 1)) + "g              ",2)
+            print('Beans weight: ' + str(currentWeight) + '. Target weight: ' + str(targetWaterWeight))
+        elif currentScreen == CurrentScreen.FILL_COFFEE_CAN:
+            currentWeight = hx1.get_weight(3)
+            waterWeight = currentWeight
+            print('Water weight: ' + str(currentWeight))
+            waterWeightString = str(int(waterWeight)).rjust(4)
+            display.lcd_display_extended_string(waterWeightString + "/"+ str(targetWaterWeight) +"ml     ",1)
+            display.lcd_display_extended_string(generateFillLine(waterWeight, targetWaterWeight),2)
+
 
 
 def main():
     try:
         RotaryEncoder(ROTARY_PIN_A, ROTARY_PIN_B, callback=on_turn, buttonPin=ROTARY_PIN_BUTTON, buttonCallback=on_press)
+        loadCellCheck = threading.Thread(target=doLoadCellCheck)
+        loadCellCheck.start()
         while True :
             sleep(.01)
             EVENT.wait(1000)
