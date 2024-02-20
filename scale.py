@@ -1,13 +1,12 @@
 #! /usr/bin/env python
 
 import drivers
-from time import sleep
 from datetime import datetime
 import threading
 from queue import Queue
 from lib import RotaryEncoder, fillUpLine, generateRatioStrenthLine, HX711, getTargetWeightFromGroundsWeight, generateFillLine
 import RPi.GPIO as GPIO
-from time import sleep
+import time
 from enum import Enum
 
 ROTARY_PIN_A = 22
@@ -36,6 +35,7 @@ targetWaterWeight = 0
 ratio = 16
 ratioEditable = True
 display.lcd_display_extended_string(generateRatioStrenthLine(ratio), 2)
+lastPressTime = time.time()
 
 
 class CurrentScreen(Enum):
@@ -74,7 +74,13 @@ def on_press(param):
     global display
     global currentScreen
     global ratioEditable
-    display.lcd_clear
+    global lastPressTime
+
+    if(lastPressTime - time.time() < 1):
+        return
+    lastPressTime = time.time()
+
+    display.lcd_clear()
     if(currentScreen == CurrentScreen.STRENGTH):
         ratioEditable = False
         currentScreen = CurrentScreen.PLACE_BEAN_HOLDER
@@ -89,7 +95,7 @@ def on_press(param):
         currentScreen = CurrentScreen.PLACE_COFFEE_CAN
         display.lcd_display_extended_string("leere Karaffe   ",1)
         display.lcd_display_extended_string("auf Wage stellen",2)
-        sleep(2)
+        time.sleep(1)
         display.lcd_display_extended_string("leere Karaffe   ",1)
         display.lcd_display_extended_string("auf Wage stellen",2)
     elif(currentScreen == CurrentScreen.PLACE_COFFEE_CAN):
@@ -98,7 +104,7 @@ def on_press(param):
     elif(currentScreen == CurrentScreen.PLACE_FILLED_BEAN_HOLDER):
         currentScreen = CurrentScreen.PLACE_FILLED_BEAN_HOLDER
         display.lcd_display_extended_string("fullen & wiegen ",1)
-        sleep(2)
+        time.sleep(1)
         display.lcd_display_extended_string("fullen & wiegen ",1)
 
     elif(currentScreen == CurrentScreen.FILL_COFFEE_CAN):
@@ -114,7 +120,7 @@ def doLoadCellCheck():
     global targetWaterWeight
     while(True):
         # Check if the current screen requeires weight
-        sleep(.25)
+        time.sleep(.25)
         if (currentScreen == CurrentScreen.PLACE_FILLED_BEAN_HOLDER):
             currentWeight = hx1.get_weight(3)
             beansWeight = currentWeight
@@ -137,7 +143,7 @@ def main():
         loadCellCheck = threading.Thread(target=doLoadCellCheck)
         loadCellCheck.start()
         while True :
-            sleep(.01)
+            time.sleep(.01)
             EVENT.wait(1000)
             consume_queue()
             EVENT.clear()
